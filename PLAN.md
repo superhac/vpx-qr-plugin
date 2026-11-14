@@ -335,6 +335,16 @@ Each step ends with something you can run.
   unexpected bytes.
 - **Output-protocol mode** (`03 <len> <data>`) and **Code ID** parsing for the
   Waveshare D, so consumers can be told the symbology (e.g. QR vs. 1D).
+- **GM67 driver** (listed in the README as "Coming soon"). Notes from its
+  manual (`manual/GM67_Barcode.pdf`, by Hangzhou Grow):
+  - Interfaces: TTL serial, USB virtual COM, or USB keyboard (HID). Serial is
+    9600 8N1 by default.
+  - Factory default is **no terminator**, so scans end by silence (the
+    generic driver's Auto mode may already work over serial or USB COM).
+    CR, CRLF, TAB and others can be enabled with setup codes.
+  - Its serial commands (Appendix 6) are a different protocol from the
+    Waveshare's, e.g. `04 E4 04 00 FF 14` = start decode,
+    `04 A3 04 00 FF 55` = request revision (usable for an identify check).
 - **Several scanners at once**, one worker per configured device.
 - **HID scanners** through a HID transport.
 

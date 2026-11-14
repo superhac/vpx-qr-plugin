@@ -3,9 +3,20 @@
 Reads a QR/barcode scanner while a table is running and publishes every scan
 to other VPinballX plugins, tagged with the running PinMAME ROM name.
 
-- **Supported scanners:** Waveshare Barcode Scanner Module (D), and any serial
-  scanner that sends each scan as a line of text. Other models can be added as
-  drivers (see [Adding a scanner](#adding-a-scanner)).
+## Supported devices
+
+| Device | Status | Wiki | Manual | Buy |
+|--------|--------|------|--------|-----|
+| Waveshare Round Module (D) | Supported | [Waveshare wiki](https://www.waveshare.com/wiki/Barcode_Scanner_Module_(D)) | [Setup manual (PDF)](manual/barcode-scanner-module-%28D%29-setup-manual.pdf) | [Amazon](https://www.amazon.com/Waveshare-Scanner-Barcode-Indicator-Integrate/dp/B0CHJVSCHW) |
+| GM67 | Coming soon | — | [Manual (PDF)](manual/GM67_Barcode.pdf) | [Amazon](https://www.amazon.com/Ruitutedianzi-Scanner-Module-Reader-Android/dp/B0DMNRJVC5) |
+
+Any other serial scanner that sends each scan as a line of text should work
+with the generic driver (`Device = 1`). Other models can be added as drivers
+(see [Adding a scanner](#adding-a-scanner)).
+
+## Overview
+
+- **Supported scanners:** see [Supported devices](#supported-devices).
 - **Platforms:** Windows (x64, x86), Linux (x64, aarch64), macOS (universal).
 - **Scope:** plugin-to-plugin only for now. Table scripts can't read scans yet.
 
