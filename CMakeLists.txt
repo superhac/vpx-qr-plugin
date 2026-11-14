@@ -146,6 +146,8 @@ file(GLOB_RECURSE QR_CORE_SOURCES CONFIGURE_DEPENDS
    "${CMAKE_SOURCE_DIR}/src/transport/*.cpp")
 add_library(qr_core STATIC ${QR_CORE_SOURCES})
 target_include_directories(qr_core PUBLIC "${CMAKE_SOURCE_DIR}/src")
+# nlohmann/json (MIT, single header): parses JSON scans to add the ROM name.
+target_include_directories(qr_core SYSTEM PRIVATE "${CMAKE_SOURCE_DIR}/third_party")
 target_link_libraries(qr_core PUBLIC Threads::Threads)
 if(WIN32)
    target_compile_definitions(qr_core PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX)
@@ -162,6 +164,8 @@ vpx_plugin(plugin "${CMAKE_SOURCE_DIR}/plugin.cfg")
 
 # Ship the consumer API header with the plugin, for other plugin authors.
 install(FILES "${CMAKE_SOURCE_DIR}/include/QRPlugin.h" DESTINATION "${plugin_PLUGIN_ID}/include")
+# The plugin contains nlohmann/json, whose MIT license asks for its notice to ship with it.
+install(FILES "${CMAKE_SOURCE_DIR}/third_party/nlohmann/LICENSE.MIT" DESTINATION "${plugin_PLUGIN_ID}" RENAME "LICENSE-nlohmann-json.txt")
 
 # ---------------------------------------------------------------------------
 # Optional: tools, tests, examples (off by default; CI builds only the plugin)

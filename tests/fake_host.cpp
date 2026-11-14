@@ -426,11 +426,17 @@ int main(int argc, char** argv)
       CHECK(pumpUntil([] { return g_scans == 2; }, 2000));
       CHECK(g_lastScanData == "[PLAYER][OTHER][]");
 
+      // JSON code: "rom" key added to the object.
+      g_controllerGameIds = { "pinmame::afm_113b" };
+      send("{\"v\":1,\"player\":{\"name\":\"Jane Smith\",\"initials\":\"JNS\"}}\r");
+      CHECK(pumpUntil([] { return g_scans == 3; }, 2000));
+      CHECK(g_lastScanData == "{\"v\":1,\"player\":{\"name\":\"Jane Smith\",\"initials\":\"JNS\"},\"rom\":\"afm_113b\"}");
+
       if (qr)
       {
-         char buf[64];
+         char buf[128];
          uint32_t seq = 0;
-         CHECK(qr->GetLastScan(buf, sizeof(buf), &seq) == g_lastScanData.size() && seq == 2 && g_lastScanData == buf);
+         CHECK(qr->GetLastScan(buf, sizeof(buf), &seq) == g_lastScanData.size() && seq == 3 && g_lastScanData == buf);
          CHECK(qr->IsConnected() == 1);
       }
 #endif

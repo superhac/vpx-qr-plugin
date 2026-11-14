@@ -14,6 +14,51 @@ Any other serial scanner that sends each scan as a line of text should work
 with the generic driver (`Device = 1`). Other models can be added as drivers
 (see [Adding a scanner](#adding-a-scanner)).
 
+## QR code format
+
+A QR code for the plugin holds one JSON object. The top-level key says what
+kind of code it is, e.g. `player` for a player logging in. Other kinds will be
+added as new keys.
+
+```json
+{"v":1,"player":{"name":"Jane Smith","initials":"JNS"}}
+```
+
+| Key        | Set by     | Description |
+|------------|------------|-------------|
+| `v`        | QR code    | Format version, currently `1`. |
+| `player`   | QR code    | A player logging in, see below. |
+| `rom`      | the plugin | The running PinMAME ROM name, `""` if the table doesn't use PinMAME. Leave it out of the code; if a code has one, the plugin overwrites it. |
+
+`player` fields:
+
+| Field      | Description |
+|------------|-------------|
+| `name`     | Player name, e.g. `Jane Smith`. |
+| `initials` | Player initials, e.g. `JNS`. |
+
+What other plugins receive for the code above, on Attack from Mars:
+
+```json
+{"v":1,"player":{"name":"Jane Smith","initials":"JNS"},"rom":"afm_113b"}
+```
+
+The plugin adds `rom` and re-writes the JSON compactly, keeping the key order.
+It doesn't check the other keys, so new kinds of code and new fields need no
+plugin change. Consumers should ignore keys they don't know.
+
+When making codes:
+
+- Put the JSON on **one line**. The scanner sends line breaks as they are, and
+  the plugin would read each line as a separate scan. JSON tools' compact
+  output is fine, e.g.
+  `qrencode -o jane.png '{"v":1,"player":{"name":"Jane Smith","initials":"JNS"}}'`.
+- Names can use any language (UTF-8).
+
+A scan that isn't a JSON object, e.g. a product barcode or plain text, is
+passed on as scanned, with the ROM name appended in brackets:
+`[PLAYER][FIELD1]` becomes `[PLAYER][FIELD1][afm_113b]` (`[]` if no ROM).
+
 ## Overview
 
 - **Supported scanners:** see [Supported devices](#supported-devices).
@@ -132,16 +177,16 @@ msgApi->ReleaseMsgID(onScanId);
 
 | Message                 | Data                 | When |
 |-------------------------|----------------------|------|
-| `QR` / `OnScan:1`          | `const QRScanEvent*`   | Every accepted scan (after duplicate filtering), with the ROM name field appended. |
+| `QR` / `OnScan:1`          | `const QRScanEvent*`   | Every accepted scan (after duplicate filtering), with the ROM name added. |
 | `QR` / `OnStatusChanged:1` | `const QRStatusEvent*` | The scanner connected or disconnected (with a reason). |
 | `QR` / `GetAPI:1`          | `QRPluginAPI**`        | Broadcast it to get the API table: `IsConnected()`, `GetLastScan()`. |
 
 - All events arrive on the main (plugin API) thread, and the API functions
   must be called from it.
-- The published text is the scanned text (without its terminator) followed
-  by a **ROM name field**: the running PinMAME ROM in brackets, or `[]` if the
-  table doesn't use PinMAME. Scanning `[PLAYER][FIELD1]` on Attack from Mars
-  publishes `[PLAYER][FIELD1][afm_113b]`. Use `length`, not `strlen`.
+- The published text is the scanned text (without its terminator) with the
+  **ROM name** added: a `"rom"` key for JSON codes, a `[rom]` field for
+  anything else (see [QR code format](#qr-code-format)). Use `length`, not
+  `strlen`.
 - Plugins load in no particular order, so you may miss the first status
   event. Use `GetAPI` → `IsConnected()` to check the state, e.g. on
   `OnGameStart`.
@@ -231,16 +276,19 @@ to [SerialPort](src/transport/SerialPort.h), implementing
 ```
 include/QRPlugin.h        public API for consumer plugins
 src/QRPlugin.cpp          VPX glue: settings, events, main-thread hand-off
-src/core/                 ScannerWorker (thread, reconnect), ScanFilter (duplicates/cooldown)
+src/core/                 ScannerWorker (thread, reconnect), ScanFilter (duplicates/cooldown),
+                          ScanFormat (adds the ROM name)
+third_party/nlohmann/     nlohmann/json (MIT), for JSON codes
 src/devices/              drivers, registry, LineFramer, Waveshare protocol
 src/transport/            SerialPort: POSIX (Linux/macOS) and Win32
 tools/qrprobe.cpp         scanner test CLI
 tests/                    unit tests, fake VPX host
 examples/consumer/        example consumer plugin
-manual/                   Waveshare setup manual
+manual/                   scanner manuals
 ```
 
 ## License
 
 GPLv3, see [LICENSE](LICENSE). The VPX SDK headers in `sdk/plugins/` are
-GPLv3+.
+GPLv3+. [nlohmann/json](https://github.com/nlohmann/json) in `third_party/`
+is MIT; its license ships in the plugin folder as `LICENSE-nlohmann-json.txt`.

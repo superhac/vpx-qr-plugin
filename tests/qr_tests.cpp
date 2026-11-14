@@ -3,6 +3,7 @@
 // Build with -DQR_BUILD_TESTS=ON, run with ctest (or the qr_tests binary).
 
 #include "core/ScanFilter.h"
+#include "core/ScanFormat.h"
 #include "devices/DeviceRegistry.h"
 #include "devices/LineFramer.h"
 #include "devices/WaveshareProtocol.h"
@@ -323,11 +324,45 @@ static void TestDrivers()
    }
 }
 
+// ---------------------------------------------------------------------------
+// ScanFormat: ROM name added to the published text
+// ---------------------------------------------------------------------------
+static void TestScanFormat()
+{
+   // JSON object: "rom" added at the end, re-written compact, key order kept.
+   CHECK(AddRomName(R"({"v":1,"player":{"name":"Jane Smith","initials":"JNS"}})", "afm_113b")
+      == R"({"v":1,"player":{"name":"Jane Smith","initials":"JNS"},"rom":"afm_113b"})");
+   // Pretty-printed and with spaces: same compact result.
+   CHECK(AddRomName("  { \"v\" : 1,\n \"player\" : { \"name\" : \"Jane Smith\" } }  ", "afm_113b")
+      == R"({"v":1,"player":{"name":"Jane Smith"},"rom":"afm_113b"})");
+   // A "rom" in the code is overwritten, in place.
+   CHECK(AddRomName(R"({"rom":"{QR Plugin Fills in}","v":1})", "afm_113b") == R"({"rom":"afm_113b","v":1})");
+   // No ROM running: empty string.
+   CHECK(AddRomName(R"({"v":1})", "") == R"({"v":1,"rom":""})");
+   // Escapes and non-ASCII text survive.
+   CHECK(AddRomName(R"({"player":{"name":"Zoë \"Z\" O'Neil"}})", "x") == "{\"player\":{\"name\":\"Zo\xc3\xab \\\"Z\\\" O'Neil\"},\"rom\":\"x\"}");
+   CHECK(AddRomName("{\"player\":{\"name\":\"Ren\xc3\xa9\"}}", "x") == "{\"player\":{\"name\":\"Ren\xc3\xa9\"},\"rom\":\"x\"}");
+   CHECK(AddRomName(R"({})", "x") == R"({"rom":"x"})");
+
+   // Not a JSON object: ROM name appended in brackets.
+   CHECK(AddRomName("[PLAYER][FIELD1]", "afm_113b") == "[PLAYER][FIELD1][afm_113b]");
+   CHECK(AddRomName("[PLAYER]", "") == "[PLAYER][]");
+   CHECK(AddRomName("hello", "x") == "hello[x]");
+   CHECK(AddRomName("", "x") == "[x]");
+   CHECK(AddRomName("[1,2]", "x") == "[1,2][x]");          // JSON array
+   CHECK(AddRomName("42", "x") == "42[x]");                // JSON number
+   CHECK(AddRomName(R"("text")", "x") == R"("text"[x])");  // JSON string
+   CHECK(AddRomName(R"({"v":1)", "x") == R"({"v":1[x])");  // truncated
+   CHECK(AddRomName(R"({"v":1}{"v":2})", "x") == R"({"v":1}{"v":2}[x])"); // trailing data
+   CHECK(AddRomName("{\"n\":\"\xff\"}", "x") == "{\"n\":\"\xff\"}[x]"); // invalid UTF-8
+}
+
 int main()
 {
    TestWaveshareProtocol();
    TestLineFramer();
    TestScanFilter();
+   TestScanFormat();
    TestDrivers();
    std::printf("%d checks, %d failed\n", g_checks, g_failures);
    return g_failures == 0 ? 0 : 1;

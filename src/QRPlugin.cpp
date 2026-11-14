@@ -16,6 +16,7 @@
 #include "QRPlugin.h"
 
 #include "core/ScanFilter.h"
+#include "core/ScanFormat.h"
 #include "core/ScannerWorker.h"
 #include "devices/DeviceRegistry.h"
 
@@ -171,9 +172,10 @@ void HandleScan(const std::string& scan)
       return;
    }
    sequence++;
-   // Published text: the scan followed by the ROM name field, "[]" when no
-   // PinMAME ROM is running. Duplicate filtering above uses the raw scan.
-   lastScan = scan + "[" + GetRomName() + "]";
+   // Published text: the scan with the running PinMAME ROM name added ("" when
+   // none), as a "rom" key for JSON codes or a "[rom]" field otherwise (see
+   // ScanFormat.h). Duplicate filtering above uses the raw scan.
+   lastScan = QR::AddRomName(scan, GetRomName());
    LOGI("Scan #"s + std::to_string(sequence) + ": " + Printable(lastScan));
 
    const QRScanEvent event { 1, lastScan.c_str(), static_cast<unsigned int>(lastScan.size()), deviceId.c_str(), sequence };

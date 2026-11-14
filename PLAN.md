@@ -318,12 +318,9 @@ Each step ends with something you can run.
 
 ### Later (not in v1)
 
-- **Payload format.** The bracketed format (`[PLAYER][FIELD1][FIELD2][FIELD3]`)
-  is test data and will be finalized later. Until then the plugin passes the
-  scanned text through unchanged, plus the ROM name field (decision 6). Once the format is final, the plugin could also
-  split it into fields: a new `OnScan:2` message, or a field added to the end
-  of `QRScanEvent` with its `version` bumped, so existing consumers keep
-  working.
+- **More QR code types.** The JSON format (decision 7) has one type so far,
+  `player`. A new type is a new top-level key with its own fields, documented
+  in the README. The plugin doesn't need to change for it.
 
 - **REVISIT: table scripts.** Exposing scans to table scripts through
   `ScriptablePlugin.h` (e.g. a `QR.LastScan` property or a scan event the
@@ -361,11 +358,19 @@ Settled on 2026-11-13:
    which is also when VPX loads it. Scans outside a game are ignored.
 4. **Manual:** the Waveshare setup manual is kept in the repo under
    [`manual/`](manual/).
-5. **Payload:** passed through raw. The format is test data for now and will
-   be finalized later (see "Later").
+5. **Payload:** passed through as scanned, except for adding the ROM name
+   (decisions 6 and 7).
 6. **ROM name field** (added 2026-11-13): every published scan gets the
    running PinMAME ROM name appended as a bracketed field, e.g.
    `[PLAYER][FIELD1][FIELD2][FIELD3][afm_113b]`, or `[]` when the table
    doesn't use PinMAME. The ROM comes from VPX's controller list
    (`Controller` / `GetControllers:1`, entry `pinmame::<rom>`), read at the
    moment of the scan. Duplicate filtering still uses the raw scan.
+7. **JSON QR codes** (added 2026-11-14): codes are JSON objects, e.g.
+   `{"v":1,"player":{"name":"Jane Smith","initials":"JNS"}}`. The top-level
+   key names the code's type, `v` is the format version, and the plugin sets
+   `"rom"` (added, or overwritten if the code has one). The plugin doesn't
+   validate the fields; it only adds `rom` and re-writes the object as compact
+   JSON. Codes that aren't JSON objects still get the `[rom]` field from
+   decision 6. JSON parsing uses nlohmann/json 3.11.3 (MIT), vendored in
+   `third_party/`.
