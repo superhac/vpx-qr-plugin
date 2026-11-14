@@ -142,7 +142,7 @@ msgApi->ReleaseMsgID(onScanId);
 ```bash
 cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 cmake --build build
-scripts/package.sh linux-x64        # dist/QR/ + dist/qr-linux-x64.zip
+scripts/package.sh linux-x64        # dist/QR/ + dist/qr-<version>-linux-x64.zip
 ```
 
 Options (all off by default):
@@ -154,8 +154,29 @@ Options (all off by default):
 | `-DQR_BUILD_EXAMPLES=ON` | the example consumer plugin (`QRConsumer/` when installed) |
 
 GitHub Actions builds all five platforms on every push, runs the tests on each,
-and makes a release from a `vX.Y.Z` tag (see the template's documentation in
-[`.github/workflows/build.yml`](.github/workflows/build.yml)).
+and makes a release from a version tag
+([`.github/workflows/build.yml`](.github/workflows/build.yml)).
+
+### Versions and releases
+
+The version lives in one place: `version` in [plugin.cfg](plugin.cfg). VPX
+shows it in its plugin list, and it's part of every zip name:
+
+| build                      | zip name |
+|----------------------------|----------|
+| release (tag `v0.1.0`)     | `qr-0.1.0-linux-x64.zip` |
+| any other push             | `qr-0.1.0-dev-<commit>-linux-x64.zip` |
+| `scripts/package.sh`       | `qr-0.1.0-linux-x64.zip` |
+
+To release:
+
+1. Set `version` in `plugin.cfg` (e.g. `0.2.0`) and commit.
+2. Tag that commit with the same version and push the tag:
+   `git tag v0.2.0 && git push origin v0.2.0`
+
+The workflow refuses a tag that doesn't match `plugin.cfg` (tag `v0.2.0` with
+`version = "0.1.0"` fails with an error saying so), so the files never report
+a different version than their name.
 
 ## Tools
 
