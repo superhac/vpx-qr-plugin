@@ -36,6 +36,7 @@ added as new keys.
 |------------|-------------|
 | `name`     | Player name, e.g. `Jane Smith`. |
 | `initials` | Player initials, e.g. `JNS`. |
+| `passcode` | Optional. A secret unique to the player, so that nobody can make a valid code for a player just by knowing their name and initials. Consumers check it against the passcode they have on record for that player. The plugin passes it on unchanged. |
 
 What other plugins receive for the code above, on Attack from Mars:
 
