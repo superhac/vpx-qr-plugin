@@ -1,7 +1,7 @@
 # QR plugin for VPinballX
 
 Reads a QR/barcode scanner while a table is running and publishes every scan
-to other VPinballX plugins.
+to other VPinballX plugins, tagged with the running PinMAME ROM name.
 
 - **Supported scanners:** Waveshare Barcode Scanner Module (D), and any serial
   scanner that sends each scan as a line of text. Other models can be added as
@@ -78,7 +78,7 @@ scan. When the port opens, the plugin sends the module's read-only "query baud
 rate" command to check it's really there, and logs a warning if it doesn't
 answer. It never changes the module's settings.
 
-In continuous mode the module re-sends a code about once a second while it's
+In continuous mode the module may re-send a code about once a second while it's
 in view. The plugin's duplicate window handles that. You can also turn on the
 module's own "same code read delay" with a setup barcode from the manual.
 
@@ -121,14 +121,16 @@ msgApi->ReleaseMsgID(onScanId);
 
 | Message                 | Data                 | When |
 |-------------------------|----------------------|------|
-| `QR` / `OnScan:1`          | `const QRScanEvent*`   | Every accepted scan (after duplicate filtering). |
+| `QR` / `OnScan:1`          | `const QRScanEvent*`   | Every accepted scan (after duplicate filtering), with the ROM name field appended. |
 | `QR` / `OnStatusChanged:1` | `const QRStatusEvent*` | The scanner connected or disconnected (with a reason). |
 | `QR` / `GetAPI:1`          | `QRPluginAPI**`        | Broadcast it to get the API table: `IsConnected()`, `GetLastScan()`. |
 
 - All events arrive on the main (plugin API) thread, and the API functions
   must be called from it.
-- The payload is passed through unchanged (no prefix or terminator). Use
-  `length`, not `strlen`.
+- The published text is the scanned text (without its terminator) followed
+  by a **ROM name field**: the running PinMAME ROM in brackets, or `[]` if the
+  table doesn't use PinMAME. Scanning `[PLAYER][FIELD1]` on Attack from Mars
+  publishes `[PLAYER][FIELD1][afm_113b]`. Use `length`, not `strlen`.
 - Plugins load in no particular order, so you may miss the first status
   event. Use `GetAPI` → `IsConnected()` to check the state, e.g. on
   `OnGameStart`.

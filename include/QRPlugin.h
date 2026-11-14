@@ -31,6 +31,11 @@
 
 // Broadcast for every accepted scan (after duplicate filtering).
 // msgData: const QRScanEvent*
+//
+// The published text is the scanned text followed by a ROM name field: the
+// name of the running PinMAME ROM in brackets, or "[]" if the table doesn't
+// use PinMAME. E.g. scanning "[PLAYER][FIELD1]" on Attack from Mars gives
+// "[PLAYER][FIELD1][afm_113b]".
 #define QRPI_EVT_ON_SCAN        "OnScan:1"
 
 // Broadcast when the scanner connects or disconnects.
@@ -44,7 +49,7 @@
 typedef struct QRScanEvent
 {
    int version;              // 1
-   const char* data;         // scanned payload, NUL-terminated; may contain any bytes, so use `length`
+   const char* data;         // scanned text + "[<rom>]" (see above), NUL-terminated; use `length`
    unsigned int length;      // payload length in bytes, excluding the NUL
    const char* deviceId;     // id of the device driver that read it, e.g. "waveshare-d"
    uint32_t sequence;        // 1 for the first scan after load, +1 for each accepted scan

@@ -13,9 +13,9 @@ Built from `vpx-plugin-builder-template` (plugin id `QR`, library `plugin-qr`).
 |------|-------|
 | 1. Serial layer + qrprobe | done; identifies the Waveshare D on Linux |
 | 2. Device layer + unit tests | done; tests pass on Linux |
-| 3. Plugin | done; lifecycle test in a fake VPX host passes, real-scanner test in progress |
+| 3. Plugin | done; tested with the real scanner in VPX on Linux (2026-11-13) |
 | 4. Consumer example + README | done (`examples/consumer/`, README) |
-| 5. Cross-platform | Windows/macOS: compile and test via GitHub Actions (tests run on every target); real-device test on Windows still to do |
+| 5. Cross-platform | done; GitHub Actions builds and tests all five targets, and the real scanner was tested in VPX on Windows (2026-11-13). macOS: CI only, no real-device test yet |
 
 Differences from the plan while implementing:
 - Added `tests/fake_host.cpp`, a minimal fake VPX host that loads the real
@@ -320,7 +320,7 @@ Each step ends with something you can run.
 
 - **Payload format.** The bracketed format (`[PLAYER][FIELD1][FIELD2][FIELD3]`)
   is test data and will be finalized later. Until then the plugin passes the
-  raw text through unchanged. Once the format is final, the plugin could also
+  scanned text through unchanged, plus the ROM name field (decision 6). Once the format is final, the plugin could also
   split it into fields: a new `OnScan:2` message, or a field added to the end
   of `QRScanEvent` with its `version` bumped, so existing consumers keep
   working.
@@ -353,3 +353,9 @@ Settled on 2026-11-13:
    [`manual/`](manual/).
 5. **Payload:** passed through raw. The format is test data for now and will
    be finalized later (see "Later").
+6. **ROM name field** (added 2026-11-13): every published scan gets the
+   running PinMAME ROM name appended as a bracketed field, e.g.
+   `[PLAYER][FIELD1][FIELD2][FIELD3][afm_113b]`, or `[]` when the table
+   doesn't use PinMAME. The ROM comes from VPX's controller list
+   (`Controller` / `GetControllers:1`, entry `pinmame::<rom>`), read at the
+   moment of the scan. Duplicate filtering still uses the raw scan.

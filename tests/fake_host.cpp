@@ -4,7 +4,11 @@
 // unloading cleans up every subscription and message id.
 //
 //   qr_fake_host <plugin library>                      lifecycle test (no device), used by ctest
+//   qr_fake_host <plugin library> --pty                scan test through a pseudo-terminal (Linux/macOS), used by ctest
 //   qr_fake_host <plugin library> <port> [seconds]     real scanner: prints scans as a consumer would see them
+//
+// The host also plays the PinMAME controller ("pinmame::<rom>" in the
+// controller list), so the ROM name field can be checked.
 //
 // Build with -DQR_BUILD_TESTS=ON.
 
@@ -31,6 +35,8 @@
 #include <windows.h>
 #else
 #include <dlfcn.h>
+#include <fcntl.h>
+#include <unistd.h>
 #endif
 
 namespace {
@@ -213,6 +219,22 @@ void MSGPIAPI OnGetLogApi(const unsigned int, void*, void* data) { *static_cast<
 
 int g_scans = 0, g_statusEvents = 0, g_lastConnected = -1;
 std::string g_lastStatusMessage;
+std::string g_lastScanData;
+
+// --- The host acting as a controller (PinMAME) ---------------------------------
+
+std::vector<std::string> g_controllerGameIds; // e.g. "pinmame::afm_113b"
+
+void MSGPIAPI OnGetControllers(const unsigned int, void*, void* data)
+{
+   auto* msg = static_cast<GetControllersMsg*>(data);
+   for (const std::string& id : g_controllerGameIds)
+   {
+      if (msg->count < msg->maxEntryCount)
+         msg->entries[msg->count] = ControllerDef { kHostEndpoint + 10 + msg->count, id.c_str() };
+      msg->count++;
+   }
+}
 
 void MSGPIAPI OnScan(const unsigned int, void*, void* data)
 {
@@ -220,6 +242,7 @@ void MSGPIAPI OnScan(const unsigned int, void*, void* data)
    CHECK(e->version >= 1);
    CHECK(e->data[e->length] == '\0');
    g_scans++;
+   g_lastScanData.assign(e->data, e->length);
    std::printf("CONSUMER got OnScan #%u from %s (%u bytes): %.*s\n", e->sequence, e->deviceId, e->length, static_cast<int>(e->length), e->data);
 }
 
@@ -280,13 +303,40 @@ int main(int argc, char** argv)
       return 2;
    }
    g_mainThread = std::this_thread::get_id();
-   const char* port = argc > 2 ? argv[2] : nullptr;
+   const bool ptyMode = argc > 2 && std::strcmp(argv[2], "--pty") == 0;
+   const char* port = argc > 2 && !ptyMode ? argv[2] : nullptr;
    const double seconds = argc > 3 ? std::atof(argv[3]) : 30.0;
    if (port)
    {
       g_settingValues["Port"] = port;
       g_settingValues["ShowNotification"] = "1";
+      g_controllerGameIds = { "pinmame::afm_113b" }; // pretend Attack from Mars is running
    }
+
+#ifndef _WIN32
+   // --pty: a pseudo-terminal stands in for the scanner. We write to the
+   // master side; the plugin opens the slave side as its serial port.
+   int ptyMaster = -1;
+   std::string ptyName;
+   if (ptyMode)
+   {
+      ptyMaster = posix_openpt(O_RDWR | O_NOCTTY);
+      if (ptyMaster < 0 || grantpt(ptyMaster) != 0 || unlockpt(ptyMaster) != 0 || ptsname(ptyMaster) == nullptr)
+      {
+         std::printf("Cannot create a pseudo-terminal\n");
+         return 1;
+      }
+      ptyName = ptsname(ptyMaster);
+      g_settingValues["Port"] = ptyName;
+      g_settingValues["Device"] = "1"; // generic serial: no identify query to wait for
+   }
+#else
+   if (ptyMode)
+   {
+      std::printf("--pty is not supported on Windows\n");
+      return 0;
+   }
+#endif
 
    g_vpxApi.version = 1;
    g_vpxApi.PushNotification = &PushNotification;
@@ -300,6 +350,8 @@ int main(int argc, char** argv)
    SubscribeMsg(kHostEndpoint, logApiId, &OnGetLogApi, nullptr);
    SubscribeMsg(kHostEndpoint, scanId, &OnScan, nullptr);
    SubscribeMsg(kHostEndpoint, statusId, &OnStatus, nullptr);
+   const unsigned int controllersId = GetMsgID(CTLPI_NAMESPACE, CTLPI_CONTROLLERS_GET_MSG);
+   SubscribeMsg(kHostEndpoint, controllersId, &OnGetControllers, nullptr);
    const size_t hostSubs = g_subs.size();
    std::vector<int> hostRefs;
    for (const MsgEntry& m : g_msgs)
@@ -317,7 +369,8 @@ int main(int argc, char** argv)
    if (!load || !unload)
       return 1;
 
-   std::printf("Loading plugin%s\n", port ? (" with Port=" + std::string(port)).c_str() : " (no port configured)");
+   const std::string portSetting = g_settingValues.count("Port") ? g_settingValues["Port"] : std::string();
+   std::printf("Loading plugin%s\n", portSetting.empty() ? " (no port configured)" : (" with Port=" + portSetting).c_str());
    load(kPluginEndpoint, &g_msgApi);
 
    for (const char* s : { "Device", "Port", "BaudRate", "Terminator", "DuplicateWindowMs", "ScanCooldownMs", "ShowNotification" })
@@ -337,7 +390,52 @@ int main(int argc, char** argv)
       CHECK(qr->GetLastScan(buf, sizeof(buf), &seq) == 0 && seq == 0 && buf[0] == '\0');
    }
 
-   if (!port)
+   // Runs the host main loop until cond() is true or timeoutMs has passed.
+   auto pumpUntil = [](const std::function<bool()>& cond, int timeoutMs) {
+      const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+      while (!cond() && std::chrono::steady_clock::now() < end)
+      {
+         ProcessQueue();
+         std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      }
+      ProcessQueue();
+      return cond();
+   };
+
+   if (ptyMode)
+   {
+#ifndef _WIN32
+      auto send = [&](const std::string& text) { CHECK(write(ptyMaster, text.data(), text.size()) == static_cast<ssize_t>(text.size())); };
+
+      CHECK(pumpUntil([] { return g_lastConnected == 1; }, 3000));
+
+      // PinMAME running: the ROM name is appended (a non-PinMAME controller is ignored).
+      g_controllerGameIds = { "other::something", "pinmame::afm_113b" };
+      send("[PLAYER][FIELD1][FIELD2][FIELD3]\r");
+      CHECK(pumpUntil([] { return g_scans == 1; }, 2000));
+      CHECK(g_lastScanData == "[PLAYER][FIELD1][FIELD2][FIELD3][afm_113b]");
+
+      // Same code again right away: filtered as a duplicate (on the raw scan).
+      send("[PLAYER][FIELD1][FIELD2][FIELD3]\r");
+      pumpUntil([] { return false; }, 300);
+      CHECK(g_scans == 1);
+
+      // No PinMAME ROM: empty field.
+      g_controllerGameIds.clear();
+      send("[PLAYER][OTHER]\r");
+      CHECK(pumpUntil([] { return g_scans == 2; }, 2000));
+      CHECK(g_lastScanData == "[PLAYER][OTHER][]");
+
+      if (qr)
+      {
+         char buf[64];
+         uint32_t seq = 0;
+         CHECK(qr->GetLastScan(buf, sizeof(buf), &seq) == g_lastScanData.size() && seq == 2 && g_lastScanData == buf);
+         CHECK(qr->IsConnected() == 1);
+      }
+#endif
+   }
+   else if (!port)
    {
       // No port: the plugin must report that right away and not start reading.
       ProcessQueue();
@@ -379,6 +477,10 @@ int main(int argc, char** argv)
    }
 
    lib.Close();
+#ifndef _WIN32
+   if (ptyMaster >= 0)
+      close(ptyMaster);
+#endif
    std::printf("%s: %d scan(s), %d status event(s), %d failure(s)\n", g_failures ? "FAILED" : "OK", g_scans, g_statusEvents, g_failures);
    return g_failures ? 1 : 0;
 }

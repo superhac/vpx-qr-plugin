@@ -184,6 +184,10 @@ if(QR_BUILD_TESTS)
    target_link_libraries(qr_fake_host PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
    add_dependencies(qr_fake_host plugin)
    add_test(NAME plugin_lifecycle COMMAND qr_fake_host "$<TARGET_FILE:plugin>")
+   if(NOT WIN32)
+      # Scans through a pseudo-terminal: serial bytes -> published OnScan text.
+      add_test(NAME plugin_scan_pty COMMAND qr_fake_host "$<TARGET_FILE:plugin>" --pty)
+   endif()
 endif()
 
 if(QR_BUILD_EXAMPLES)

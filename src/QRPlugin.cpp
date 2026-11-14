@@ -26,6 +26,8 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <string_view>
+#include <vector>
 
 using namespace std::string_literals;
 
@@ -42,7 +44,7 @@ namespace {
 const MsgPluginAPI* msgApi = nullptr;
 VPXPluginAPI* vpxApi = nullptr;
 uint32_t endpointId = 0;
-unsigned int getVpxApiId = 0, onScanId = 0, onStatusId = 0, getApiId = 0;
+unsigned int getVpxApiId = 0, onScanId = 0, onStatusId = 0, getApiId = 0, getControllersId = 0;
 
 // ---------------------------------------------------------------------------
 // Settings, saved by VPX under [Plugin.QR] in VPinballX.ini.
@@ -133,6 +135,33 @@ void Notify(const std::string& text)
       vpxApi->PushNotification(text.c_str(), 3000);
 }
 
+// PinMAME reports its running game in VPX's controller list as
+// "pinmame::<game>", where <game> is the ROM (or alias) name. This is
+// PMPI_GAMEID_PREFIX from PinMAME's PinMAMEPlugin.h, which isn't vendored here.
+constexpr std::string_view kPinMAMEGameIdPrefix = "pinmame::";
+
+// The ROM name of the running PinMAME game, or "" if there is none (e.g. an
+// original table). Asks all controllers to list themselves (CTLPI_CONTROLLERS_GET_MSG):
+// a first call with no buffer gets the count, a second one fills the entries.
+std::string GetRomName()
+{
+   GetControllersMsg query { 0, 0, nullptr };
+   msgApi->BroadcastMsg(endpointId, getControllersId, &query);
+   if (query.count == 0)
+      return {};
+   std::vector<ControllerDef> entries(query.count);
+   GetControllersMsg list { static_cast<unsigned int>(entries.size()), 0, entries.data() };
+   msgApi->BroadcastMsg(endpointId, getControllersId, &list);
+   const size_t n = std::min<size_t>(list.count, entries.size());
+   for (size_t i = 0; i < n; i++)
+   {
+      const std::string_view gameId = entries[i].gameId ? entries[i].gameId : "";
+      if (gameId.starts_with(kPinMAMEGameIdPrefix))
+         return std::string(gameId.substr(kPinMAMEGameIdPrefix.size()));
+   }
+   return {};
+}
+
 void HandleScan(const std::string& scan)
 {
    using std::chrono::milliseconds;
@@ -142,12 +171,14 @@ void HandleScan(const std::string& scan)
       return;
    }
    sequence++;
-   lastScan = scan;
-   LOGI("Scan #"s + std::to_string(sequence) + ": " + Printable(scan));
+   // Published text: the scan followed by the ROM name field, "[]" when no
+   // PinMAME ROM is running. Duplicate filtering above uses the raw scan.
+   lastScan = scan + "[" + GetRomName() + "]";
+   LOGI("Scan #"s + std::to_string(sequence) + ": " + Printable(lastScan));
 
    const QRScanEvent event { 1, lastScan.c_str(), static_cast<unsigned int>(lastScan.size()), deviceId.c_str(), sequence };
    msgApi->BroadcastMsg(endpointId, onScanId, const_cast<QRScanEvent*>(&event));
-   Notify("QR: "s + Printable(scan, 60));
+   Notify("QR: "s + Printable(lastScan, 80));
 }
 
 void HandleStatus(bool isConnected, const std::string& message)
@@ -264,6 +295,7 @@ MSGPI_EXPORT void MSGPIAPI PLUGIN_LOAD(const uint32_t sessionId, const MsgPlugin
    msgApi->BroadcastMsg(endpointId, getVpxApiId = msgApi->GetMsgID(VPXPI_NAMESPACE, VPXPI_MSG_GET_API), &vpxApi);
    onScanId = msgApi->GetMsgID(QRPI_NAMESPACE, QRPI_EVT_ON_SCAN);
    onStatusId = msgApi->GetMsgID(QRPI_NAMESPACE, QRPI_EVT_ON_STATUS_CHG);
+   getControllersId = msgApi->GetMsgID(CTLPI_NAMESPACE, CTLPI_CONTROLLERS_GET_MSG);
    msgApi->SubscribeMsg(endpointId, getApiId = msgApi->GetMsgID(QRPI_NAMESPACE, QRPI_MSG_GET_API), &OnGetApi, nullptr);
 
    const auto& devices = QR::Devices();
@@ -310,6 +342,7 @@ MSGPI_EXPORT void MSGPIAPI PLUGIN_UNLOAD()
    msgApi->ReleaseMsgID(onScanId);
    msgApi->ReleaseMsgID(onStatusId);
    msgApi->ReleaseMsgID(getApiId);
+   msgApi->ReleaseMsgID(getControllersId);
    vpxApi = nullptr;
    msgApi = nullptr;
 }
