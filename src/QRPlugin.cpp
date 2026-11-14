@@ -175,11 +175,17 @@ void HandleScan(const std::string& scan)
    // Published text: the scan with the running PinMAME ROM name added ("" when
    // none), as a "rom" key for JSON codes or a "[rom]" field otherwise (see
    // ScanFormat.h). Duplicate filtering above uses the raw scan.
-   lastScan = QR::AddRomName(scan, GetRomName());
+   const std::string rom = GetRomName();
+   lastScan = QR::AddRomName(scan, rom);
    LOGI("Scan #"s + std::to_string(sequence) + ": " + Printable(lastScan));
 
    const QRScanEvent event { 1, lastScan.c_str(), static_cast<unsigned int>(lastScan.size()), deviceId.c_str(), sequence };
    msgApi->BroadcastMsg(endpointId, onScanId, const_cast<QRScanEvent*>(&event));
+
+   // Table script: calls the table's Sub QR_OnScan(scan), if it has one.
+   if (vpxApi && vpxApi->RunScript)
+      vpxApi->RunScript(QR::BuildTableScript(scan, rom).c_str());
+
    Notify("QR: "s + Printable(lastScan, 80));
 }
 

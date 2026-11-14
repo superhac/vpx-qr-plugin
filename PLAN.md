@@ -322,10 +322,6 @@ Each step ends with something you can run.
   `player`. A new type is a new top-level key with its own fields, documented
   in the README. The plugin doesn't need to change for it.
 
-- **REVISIT: table scripts.** Exposing scans to table scripts through
-  `ScriptablePlugin.h` (e.g. a `QR.LastScan` property or a scan event the
-  script can poll). Deferred on 2026-11-13. Bring it up again once the
-  plugin-to-plugin API is working.
 - **Port auto-detection**: list the serial ports and send "query baud rate" to
   each. This must be opt-in, because cabinets often have other serial
   hardware (DOF controllers, Pinscape and so on) that shouldn't receive
@@ -349,7 +345,7 @@ Each step ends with something you can run.
 
 Settled on 2026-11-13:
 
-1. **Table scripts:** not in v1. Listed under "Later" as a REVISIT item.
+1. **Table scripts:** not in v1 at first; added on 2026-11-14 (decision 8).
 2. **Duplicates:** a 1.5 s duplicate window is the default. It's configurable
    up to 60 s (`DuplicateWindowMs`), and a separate `ScanCooldownMs` setting
    can enforce a longer pause after *any* scan, not just repeats of the same
@@ -374,3 +370,21 @@ Settled on 2026-11-13:
    JSON. Codes that aren't JSON objects still get the `[rom]` field from
    decision 6. JSON parsing uses nlohmann/json 3.11.3 (MIT), vendored in
    `third_party/`.
+8. **Table scripts** (added 2026-11-14): on each accepted scan the plugin uses
+   VPX's `RunScript` to call the table's `Sub QR_OnScan(scan)`, if it has one,
+   with a `Scripting.Dictionary` of the scan's fields (JSON flattened to dotted
+   keys, plus `type` and `json`; non-JSON scans give `type = "text"`). Always
+   on, no setting: a scan happens about once per game.
+   - Why `RunScript` and not a `ScriptablePlugin.h` object: it pushes the scan
+     (no polling timer in the table), and `ScriptablePlugin.h` is marked as
+     work in progress in the SDK.
+   - The generated code (re)defines `Sub QRPlugin_Dispatch` and calls it.
+     VBScript allows redefining a Sub in a later script block (checked in
+     VPX's libwinevbs source: only Class names collide). Errors are trapped
+     only while looking up `QR_OnScan` with `GetRef`, so a missing Sub is
+     skipped silently but errors inside it still show.
+   - Strings are VBScript literals with `"` doubled and non-ASCII/control
+     characters as `ChrW()`, so scanned text can't inject code or line breaks.
+   - Checked by running the generated code in VPX's own VBScript engine
+     (libwinevbs, as used on Linux/macOS) with a small harness: values and
+     types, Unicode, a table without the Sub, and an error inside the Sub.

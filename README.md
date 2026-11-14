@@ -1,7 +1,8 @@
 # QR plugin for VPinballX
 
 Reads a QR/barcode scanner while a table is running and publishes every scan
-to other VPinballX plugins, tagged with the running PinMAME ROM name.
+to other VPinballX plugins and to the table script, tagged with the running
+PinMAME ROM name.
 
 ## Supported devices
 
@@ -64,7 +65,8 @@ passed on as scanned, with the ROM name appended in brackets:
 
 - **Supported scanners:** see [Supported devices](#supported-devices).
 - **Platforms:** Windows (x64, x86), Linux (x64, aarch64), macOS (universal).
-- **Scope:** plugin-to-plugin only for now. Table scripts can't read scans yet.
+- **Delivers scans to:** other plugins ([Using scans in your plugin](#using-scans-in-your-plugin))
+  and table scripts ([Using scans in a table script](#using-scans-in-a-table-script)).
 
 Built from `vpx-plugin-builder-template`; the design and decisions are in
 [PLAN.md](PLAN.md).
@@ -194,6 +196,62 @@ msgApi->ReleaseMsgID(onScanId);
 
 [examples/consumer/](examples/consumer/) is a complete consumer plugin.
 
+## Using scans in a table script
+
+To react to scans in a table, add a `QR_OnScan` Sub to the table script. The
+plugin calls it once for each accepted scan, with a `Scripting.Dictionary` of
+the scan's fields. The table doesn't need to parse any JSON.
+
+```vb
+Sub QR_OnScan(scan)
+   If scan("type") = "player" Then
+      ' e.g. show a welcome message, set up the player
+      LoginPlayer scan("player.name"), scan("player.initials")
+   End If
+End Sub
+```
+
+For the player code in [QR code format](#qr-code-format), on Attack from Mars,
+`scan` contains:
+
+| Key               | Value |
+|-------------------|-------|
+| `type`            | `"player"` |
+| `v`               | `1` |
+| `player.name`     | `"Jane Smith"` |
+| `player.initials` | `"JNS"` |
+| `rom`             | `"afm_113b"` (`""` if the table doesn't use PinMAME) |
+| `json`            | the full JSON, as other plugins receive it |
+
+How the JSON becomes keys:
+
+- **`type`** is the code's type: its first top-level key whose value is an
+  object (`player`). `""` if there is none.
+- Nested fields are joined with dots: `player.name`.
+- Numbers, `true`/`false` and `null` arrive as VBScript numbers, `True`/`False`
+  and `Null`. Arrays become `list.0`, `list.1`, ... plus `list.count`.
+- Keys aren't case-sensitive: `scan("Player.Name")` works too.
+- A field the code doesn't have reads as `Empty`. Use `scan.Exists("player.initials")`
+  to check whether it's there. (Reading a missing key adds it to the
+  Dictionary, as usual for `Scripting.Dictionary`.)
+- `type` and `json` are set by the plugin, so a code can't override them;
+  `rom` too.
+
+Scans that aren't JSON, e.g. a product barcode, also call `QR_OnScan`, with
+`type` = `"text"`, `text` = the scanned text, and `rom`.
+
+Notes:
+
+- The table doesn't need to do anything else. If it has no `QR_OnScan`, the
+  plugin skips it silently.
+- Errors in `QR_OnScan` show as normal script errors.
+- It's only called while the table is running, after duplicate filtering, on
+  the same thread as the rest of the script. A scan in the first moments of
+  loading, before the table script has started, isn't delivered to it.
+- It works the same on Windows, Linux and macOS.
+- Leave `QRPlugin_` names alone: the plugin defines a `QRPlugin_Dispatch` Sub
+  in the table script to make the call.
+
 ## Building
 
 ```bash
@@ -278,7 +336,7 @@ to [SerialPort](src/transport/SerialPort.h), implementing
 include/QRPlugin.h        public API for consumer plugins
 src/QRPlugin.cpp          VPX glue: settings, events, main-thread hand-off
 src/core/                 ScannerWorker (thread, reconnect), ScanFilter (duplicates/cooldown),
-                          ScanFormat (adds the ROM name)
+                          ScanFormat (adds the ROM name, builds the table script call)
 third_party/nlohmann/     nlohmann/json (MIT), for JSON codes
 src/devices/              drivers, registry, LineFramer, Waveshare protocol
 src/transport/            SerialPort: POSIX (Linux/macOS) and Win32

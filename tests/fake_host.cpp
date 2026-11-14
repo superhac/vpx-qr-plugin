@@ -203,6 +203,8 @@ MsgPluginAPI g_msgApi {
 // --- Host services the plugin asks for -----------------------------------------
 
 unsigned int MSGPIAPI PushNotification(const char* msg, const int) { std::printf("  [notification] %s\n", msg); return 1; }
+std::vector<std::string> g_scripts; // code passed to RunScript
+void MSGPIAPI RunScript(const char* script) { g_scripts.emplace_back(script); }
 VPXPluginAPI g_vpxApi {};
 
 void MSGPIAPI Log(const char* source, const char*, int, unsigned int level, const char* message)
@@ -340,6 +342,7 @@ int main(int argc, char** argv)
 
    g_vpxApi.version = 1;
    g_vpxApi.PushNotification = &PushNotification;
+   g_vpxApi.RunScript = &RunScript;
 
    // Host-side subscriptions (stay for the whole run).
    const unsigned int vpxApiId = GetMsgID(VPXPI_NAMESPACE, VPXPI_MSG_GET_API);
@@ -431,6 +434,11 @@ int main(int argc, char** argv)
       send("{\"v\":1,\"player\":{\"name\":\"Jane Smith\",\"initials\":\"JNS\"}}\r");
       CHECK(pumpUntil([] { return g_scans == 3; }, 2000));
       CHECK(g_lastScanData == "{\"v\":1,\"player\":{\"name\":\"Jane Smith\",\"initials\":\"JNS\"},\"rom\":\"afm_113b\"}");
+
+      // Every published scan also calls the table script once.
+      CHECK(g_scripts.size() == 3);
+      CHECK(!g_scripts.empty() && g_scripts.back().find("\"player.name\", \"Jane Smith\"") != std::string::npos
+         && g_scripts.back().find("\"rom\", \"afm_113b\"") != std::string::npos);
 
       if (qr)
       {

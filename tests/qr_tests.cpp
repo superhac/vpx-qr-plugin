@@ -357,12 +357,52 @@ static void TestScanFormat()
    CHECK(AddRomName("{\"n\":\"\xff\"}", "x") == "{\"n\":\"\xff\"}[x]"); // invalid UTF-8
 }
 
+// ---------------------------------------------------------------------------
+// ScanFormat: VBScript for the table's QR_OnScan
+// ---------------------------------------------------------------------------
+static void TestTableScript()
+{
+   // String literals: quotes doubled, non-ASCII / control characters as ChrW.
+   CHECK(VbString("") == R"("")");
+   CHECK(VbString("Jane Smith") == R"("Jane Smith")");
+   CHECK(VbString(R"(say "hi")") == R"("say ""hi""")");
+   CHECK(VbString("Ren\xc3\xa9") == R"("Ren" & ChrW(233))");
+   CHECK(VbString("\xc3\xa9t\xc3\xa9") == R"(ChrW(233) & "t" & ChrW(233))");
+   CHECK(VbString("a\r\nb") == R"("a" & ChrW(13) & ChrW(10) & "b")");
+   CHECK(VbString("\xf0\x9f\x98\x80") == "ChrW(55357) & ChrW(56832)");   // U+1F600: surrogate pair
+   CHECK(VbString("x\xffy") == R"("x" & ChrW(65533) & "y")");            // invalid UTF-8
+   CHECK(VbString("\xe2\x82") == "ChrW(65533) & ChrW(65533)");            // truncated sequence
+   // Scanned text can't end the literal and inject code.
+   CHECK(VbString("\" : ExecuteGlobal \"x") == R"(""" : ExecuteGlobal ""x")");
+
+   // Player code: flattened keys, then type and json.
+   CHECK(BuildScanPairs(R"({"v":1,"player":{"name":"Jane Smith","initials":"JNS"}})", "afm_113b")
+      == R"(Array("v", 1, "player.name", "Jane Smith", "player.initials", "JNS", "rom", "afm_113b", "type", "player", )"
+         R"("json", "{""v"":1,""player"":{""name"":""Jane Smith"",""initials"":""JNS""},""rom"":""afm_113b""}"))");
+   // Value types, arrays, nesting.
+   CHECK(BuildScanPairs(R"({"a":{"b":{"c":true}},"n":null,"f":1.5,"big":3000000000,"neg":-7,"list":["x",2]})", "")
+      == R"(Array("a.b.c", True, "n", Null, "f", 1.5, "big", 3000000000.0, "neg", -7, "list.0", "x", "list.1", 2, "list.count", 2, )"
+         R"("rom", "", "type", "a", "json", "{""a"":{""b"":{""c"":true}},""n"":null,""f"":1.5,""big"":3000000000,""neg"":-7,""list"":[""x"",2],""rom"":""""}"))");
+   // No object-valued key: empty type. A "type" in the code is overridden (added last).
+   CHECK(BuildScanPairs(R"({"type":"x"})", "r") == R"(Array("type", "x", "rom", "r", "type", "", "json", "{""type"":""x"",""rom"":""r""}"))");
+   // Not JSON: text.
+   CHECK(BuildScanPairs("[PLAYER][FIELD1]", "afm_113b") == R"(Array("type", "text", "text", "[PLAYER][FIELD1]", "rom", "afm_113b"))");
+   CHECK(BuildScanPairs("[1,2]", "") == R"(Array("type", "text", "text", "[1,2]", "rom", ""))");
+
+   // Full script: dispatcher then one call line; no line breaks from the scan.
+   const std::string script = BuildTableScript("a\rb\nc", "");
+   CHECK(script.find("Sub QRPlugin_Dispatch(pairs)\n") == 0);
+   CHECK(script.find("GetRef(\"QR_OnScan\")") != std::string::npos);
+   CHECK(script.ends_with("\nQRPlugin_Dispatch Array(\"type\", \"text\", \"text\", \"a\" & ChrW(13) & \"b\" & ChrW(10) & \"c\", \"rom\", \"\")\n"));
+}
+
 int main()
 {
    TestWaveshareProtocol();
    TestLineFramer();
    TestScanFilter();
    TestScanFormat();
+   TestTableScript();
    TestDrivers();
    std::printf("%d checks, %d failed\n", g_checks, g_failures);
    return g_failures == 0 ? 0 : 1;
