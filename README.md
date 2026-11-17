@@ -4,6 +4,11 @@ Reads a QR/barcode scanner while a table is running and publishes every scan
 to other VPinballX plugins and to the table script, tagged with the running
 PinMAME ROM name.
 
+<img width="189" height="218" alt="image" src="https://github.com/user-attachments/assets/fb303e18-2e43-43bc-8566-df5fe62b26b3" />
+<img width="202" height="131" alt="image" src="https://github.com/user-attachments/assets/2bdff0df-96ca-4e85-a35a-adf3e223f37e" />
+
+
+
 ## Supported devices
 
 | Device | Status | Wiki | Manual | Buy |
