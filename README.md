@@ -9,6 +9,16 @@ PinMAME ROM name.
 
 
 
+## Overview
+
+- **Supported devices:** see [Supported devices](#supported-devices).
+- **Platforms:** Windows (x64, x86), Linux (x64, aarch64), macOS (universal).
+- **Delivers scans to:** other plugins ([Using scans in your plugin](#using-scans-in-your-plugin))
+  and table scripts ([Using scans in a table script](#using-scans-in-a-table-script)).
+
+Built from `vpx-plugin-builder-template`; the design and decisions are in
+[PLAN.md](PLAN.md).
+
 ## Supported devices
 
 | Device | Status | Wiki | Manual | Buy |
@@ -20,77 +30,155 @@ Any other serial scanner that sends each scan as a line of text should work
 with the generic driver (`Device = 1`). Other models can be added as drivers
 (see [Adding a scanner](#adding-a-scanner)).
 
+USB scanners that act as a keyboard (HID) aren't supported: VPX would see them
+as key presses.
+
+### Waveshare Barcode Scanner Module (D) (`Device = 0`, driver `waveshare-d`)
+
+Works with the factory settings: 9600 8N1, continuous mode, CR after each
+scan. When the port opens, the plugin sends the module's read-only "query baud
+rate" command to check it's really there, and logs a warning if it doesn't
+answer. It never changes the module's settings.
+
+In continuous mode the module may re-send a code about once a second while it's
+in view. The plugin's duplicate window handles that. You can also turn on the
+module's own "same code read delay" with a setup barcode from the
+[setup manual](manual/barcode-scanner-module-%28D%29-setup-manual.pdf).
+
+### Generic serial scanner (`Device = 1`, driver `serial-line`)
+
+For scanners that send each scan as text followed by CR and/or LF (most
+"serial/ASCII" scanners). Set `BaudRate` and `Terminator` to match. Listen-only.
+
 ## QR code format
 
-A QR code for the plugin holds one JSON object. The top-level key says what
-kind of code it is, e.g. `player` for a player logging in. Other kinds will be
-added as new keys.
+**Anything can be encoded.** The plugin passes on every scan, whatever it
+holds: plain text, a product barcode, or JSON of your own design. What a scan
+means is up to the plugins and tables that receive it.
+
+For a code to work on any table or plugin, and not just the one it was made
+for, they all have to read it the same way. So this README also defines
+**standard codes**: shared formats for common uses. Each standard has a name,
+e.g. `player`, and a set of fields. A plugin or table that understands a
+standard can use any code made to it, whoever made the code. If you're making
+codes for a common use, use the standard one if there is one.
+
+### How standard codes are built
+
+A standard code is one JSON object, with the standard's name as the key and
+its fields as an object under it:
 
 ```json
 {"v":1,"player":{"name":"Jane Smith","initials":"JNS"}}
 ```
 
-| Key        | Set by     | Description |
-|------------|------------|-------------|
-| `v`        | QR code    | Format version, currently `1`. |
-| `player`   | QR code    | A player logging in, see below. |
-| `rom`      | the plugin | The running PinMAME ROM name, `""` if the table doesn't use PinMAME. Leave it out of the code; if a code has one, the plugin overwrites it. |
+| Key            | Set by     | Description |
+|----------------|------------|-------------|
+| `v`            | QR code    | Format version, currently `1`. |
+| *standard name* | QR code   | The standard, e.g. `player`, with its fields. |
+| `rom`          | the plugin | **Added automatically** to every scan: the running PinMAME ROM name, `""` if the table doesn't use PinMAME. Leave it out of the code; see [What receivers get](#what-receivers-get). |
 
-`player` fields:
+### Standards
 
-| Field      | Description |
-|------------|-------------|
-| `name`     | Player name, e.g. `Jane Smith`. |
-| `initials` | Player initials, e.g. `JNS`. |
-| `passcode` | Optional. A secret unique to the player, so that nobody can make a valid code for a player just by knowing their name and initials. Consumers check it against the passcode they have on record for that player. The plugin passes it on unchanged. |
+These are the standard codes defined so far. Plugins and tables that support
+one can use any code made to it.
 
-What other plugins receive for the code above, on Attack from Mars:
+| Standard | Key | What it's for |
+|----------|-----|---------------|
+| **[Player](#player)** | `player` | Says who is playing, so plugins and tables can keep scores, achievements and other progress for that player. |
+
+#### Player
+
+**Key:** `player`
+
+Tells plugins and tables who is playing. Scan your player code at the start
+of a game and anything listening knows it's you, so it can, for example:
+
+- keep high scores and stats for each player, not just per table
+- unlock and track achievements for that player
+- put the player's name or initials on a score without typing them in
 
 ```json
-{"v":1,"player":{"name":"Jane Smith","initials":"JNS"},"rom":"afm_113b"}
+{"v":1,"player":{"name":"Jane Smith","initials":"JNS"}}
 ```
 
-The plugin adds `rom` and re-writes the JSON compactly, keeping the key order.
-It doesn't check the other keys, so new kinds of code and new fields need no
-plugin change. Consumers should ignore keys they don't know.
+| Field      | Required | Description |
+|------------|----------|-------------|
+| `name`     | yes      | Player name, e.g. `Jane Smith`. |
+| `initials` | yes      | Player initials, e.g. `JNS`. |
+| `passcode` | no       | A secret unique to the player, so that nobody can make a valid code for a player just by knowing their name and initials. Consumers check it against the passcode they have on record for that player. The plugin passes it on unchanged. |
 
-When making codes:
+### Custom codes
+
+Codes that don't fit a standard work too. A custom JSON code follows the same
+shape with a key of your own, e.g. `{"v":1,"mytable_bonus":{"level":3}}`.
+Pick a name that won't clash with a standard, e.g. prefixed with your table
+or plugin name. If a format would be useful to others, propose it as a new
+standard in an issue or pull request.
+
+### What receivers get
+
+> **The plugin always adds the ROM name.** Every scan it sends on has the
+> running PinMAME ROM name added, so receivers know which table it was scanned
+> on. `""` means the table doesn't use PinMAME. Don't put it in your codes:
+> the plugin sets it.
+
+| Scan            | How the ROM name is added | Example, on Attack from Mars |
+|-----------------|---------------------------|------------------------------|
+| A JSON object   | As a `rom` key, added at the end. If the code already has a `rom` key, its value is replaced. | `{"v":1,"player":{"name":"Jane Smith","initials":"JNS"}}` → `{"v":1,"player":{"name":"Jane Smith","initials":"JNS"},"rom":"afm_113b"}` |
+
+Apart from that, JSON is re-written compactly, keeping the key order. The
+plugin doesn't check the other keys, so new standards, custom codes and new
+fields need no plugin change. Consumers should ignore keys they don't know.
+
+### Making codes
 
 - Put the JSON on **one line**. The scanner sends line breaks as they are, and
   the plugin would read each line as a separate scan. JSON tools' compact
   output is fine, e.g.
   `qrencode -o jane.png '{"v":1,"player":{"name":"Jane Smith","initials":"JNS"}}'`.
-- Names can use any language (UTF-8).
-
-A scan that isn't a JSON object, e.g. a product barcode or plain text, is
-passed on as scanned, with the ROM name appended in brackets:
-`[PLAYER][FIELD1]` becomes `[PLAYER][FIELD1][afm_113b]` (`[]` if no ROM).
-
-## Overview
-
-- **Supported scanners:** see [Supported devices](#supported-devices).
-- **Platforms:** Windows (x64, x86), Linux (x64, aarch64), macOS (universal).
-- **Delivers scans to:** other plugins ([Using scans in your plugin](#using-scans-in-your-plugin))
-  and table scripts ([Using scans in a table script](#using-scans-in-a-table-script)).
-
-Built from `vpx-plugin-builder-template`; the design and decisions are in
-[PLAN.md](PLAN.md).
+- Text can be in any language (UTF-8).
 
 ## Installing
 
-1. Download the zip for your platform from the GitHub release (or build it,
-   see below) and copy the `QR/` folder into the plugins folder inside VPX's
-   preferences folder, creating `plugins/` if it doesn't exist. That's the
-   place for third-party plugins; the plugins folder next to the VPX
-   executable is for the plugins that ship with VPX.
-   - Linux: `~/.local/share/VPinballX/<version>/plugins/`, e.g.
-     `~/.local/share/VPinballX/10.8/plugins/QR/`
-   - Windows and macOS: `<VPX preferences folder>/plugins/`. VPX's log shows the
-     folder at startup, in the line "Preference path: ...".
+1. Download the zip for your platform from the
+   [GitHub releases](https://github.com/superhac/vpx-qr-plugin/releases)
+   (or build it, see below):
 
-   VPX only scans this folder if it exists. It also scans the plugins folder
-   next to the executable.
-2. Enable the plugin and set the port, in VPX's plugin settings or in
+   | Your system           | Zip |
+   |-----------------------|-----|
+   | Windows, 64-bit VPX   | `qr-<version>-windows-x64.zip` |
+   | Windows, 32-bit VPX   | `qr-<version>-windows-x86.zip` |
+   | Linux, PC             | `qr-<version>-linux-x64.zip` |
+   | Linux, ARM (e.g. Raspberry Pi) | `qr-<version>-linux-aarch64.zip` |
+   | macOS (Intel or Apple Silicon) | `qr-<version>-macos-universal.zip` |
+
+2. Unzip it and copy the `QR/` folder into the `plugins` folder in your
+   user's VPX preferences folder. Create `plugins` if it isn't there yet.
+
+   | OS      | Copy `QR/` into |
+   |---------|-----------------|
+   | Windows | `%APPDATA%\VPinballX\10.8\plugins\` (i.e. `C:\Users\<you>\AppData\Roaming\VPinballX\10.8\plugins\`) |
+   | Linux   | `~/.local/share/VPinballX/10.8/plugins/` |
+   | macOS   | `~/Library/Application Support/VPinballX/10.8/plugins/` |
+
+   You should end up with e.g. `.../VPinballX/10.8/plugins/QR/plugin.cfg`.
+
+   - `10.8` is VPX's major.minor version; use the folder matching yours. VPX
+     creates the preferences folder on its first start, so run VPX once if it
+     doesn't exist yet.
+   - To open the folder on Windows, paste `%APPDATA%\VPinballX` into the
+     Explorer address bar. On macOS, `~/Library` is hidden: in Finder use
+     Go → Go to Folder… and paste the path.
+   - If you're not sure, VPX's log prints the folder at startup in the line
+     `Preference path: ...`. If you start VPX with `-PrefPath <folder>`, use
+     `<folder>/plugins/` instead.
+   - Using this folder keeps the plugin when you update or reinstall VPX. The
+     `plugins` folder next to the VPX executable (`VPinballX.app/Contents/PlugIns`
+     on macOS) also works, but holds the plugins that ship with VPX and is
+     replaced on upgrade.
+
+3. Enable the plugin and set the port, in VPX's plugin settings or in
    `VPinballX.ini`:
 
    ```ini
@@ -99,7 +187,7 @@ Built from `vpx-plugin-builder-template`; the design and decisions are in
    Port = COM3
    ```
 
-3. Start a table. The plugin opens the port when the table starts and closes
+4. Start a table. The plugin opens the port when the table starts and closes
    it when the table ends. Scans made outside of a game are ignored.
 
 To check it's working, turn on `ShowNotification`: VPX then pops up every scan
@@ -132,30 +220,6 @@ terminator take effect when the next table starts.
 
 If the scanner is unplugged, the plugin keeps retrying every 2 seconds and
 picks it up again when it's plugged back in.
-
-## Supported scanners
-
-### Waveshare Barcode Scanner Module (D) (`waveshare-d`)
-
-Works with the factory settings: 9600 8N1, continuous mode, CR after each
-scan. When the port opens, the plugin sends the module's read-only "query baud
-rate" command to check it's really there, and logs a warning if it doesn't
-answer. It never changes the module's settings.
-
-In continuous mode the module may re-send a code about once a second while it's
-in view. The plugin's duplicate window handles that. You can also turn on the
-module's own "same code read delay" with a setup barcode from the manual.
-
-The setup manual is in [manual/](manual/), and the module's wiki page is
-<https://www.waveshare.com/wiki/Barcode_Scanner_Module_(D)>.
-
-### Generic serial scanner (`serial-line`)
-
-For scanners that send each scan as text followed by CR and/or LF (most
-"serial/ASCII" scanners). Set `BaudRate` and `Terminator` to match. Listen-only.
-
-USB scanners that act as a keyboard (HID) aren't supported: VPX would see them
-as key presses.
 
 ## Using scans in your plugin
 
@@ -216,7 +280,7 @@ Sub QR_OnScan(scan)
 End Sub
 ```
 
-For the player code in [QR code format](#qr-code-format), on Attack from Mars,
+For the [`player` code](#player), on Attack from Mars,
 `scan` contains:
 
 | Key               | Value |
