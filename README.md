@@ -47,10 +47,13 @@ module's own "same code read delay" with a setup barcode from the
 
 ### GM67/M3027 (`Device = 2`, driver `gm67`)
 
-The GM67/M3027 starts in USB keyboard mode, which won't work with VPX. Scan the
-**USB COM** setup code once (section 3.3 of the
-[manual](manual/GM67_Barcode.pdf)) to switch it to a virtual serial port. It
-keeps the setting. It then appears as a COM port on Windows, as
+The GM67/M3027 starts in USB keyboard mode, which won't work with VPX. Scan
+this **USB COM** setup code once to switch it to a virtual serial port (from
+section 3.3 of the [manual](manual/GM67_Barcode.pdf)):
+
+<img src="manual/gm67-usb-com.png" alt="GM67/M3027 USB COM setup code" width="150">
+
+It keeps the setting. It then appears as a COM port on Windows, as
 `/dev/ttyACM0` (or under `/dev/serial/by-id/`) on Linux, and as
 `/dev/cu.usbmodem...` on macOS. Wired to its TTL serial pins, it works as is.
 
