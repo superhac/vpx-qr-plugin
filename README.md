@@ -24,7 +24,7 @@ Built from `vpx-plugin-builder-template`; the design and decisions are in
 | Device | Status | Wiki | Manual | Buy |
 |--------|--------|------|--------|-----|
 | Waveshare Round Module (D) | Supported | [Waveshare wiki](https://www.waveshare.com/wiki/Barcode_Scanner_Module_(D)) | [Setup manual (PDF)](manual/barcode-scanner-module-%28D%29-setup-manual.pdf) | [Amazon](https://www.amazon.com/Waveshare-Scanner-Barcode-Indicator-Integrate/dp/B0CHJVSCHW) |
-| GM67 | Coming soon | — | [Manual (PDF)](manual/GM67_Barcode.pdf) | [Amazon](https://www.amazon.com/Ruitutedianzi-Scanner-Module-Reader-Android/dp/B0DMNRJVC5) |
+| GM67/M3027 | Supported | — | [Manual (PDF)](manual/GM67_Barcode.pdf) | [Amazon](https://www.amazon.com/Ruitutedianzi-Scanner-Module-Reader-Android/dp/B0DMNRJVC5) |
 
 Any other serial scanner that sends each scan as a line of text should work
 with the generic driver (`Device = 1`). Other models can be added as drivers
@@ -44,6 +44,29 @@ In continuous mode the module may re-send a code about once a second while it's
 in view. The plugin's duplicate window handles that. You can also turn on the
 module's own "same code read delay" with a setup barcode from the
 [setup manual](manual/barcode-scanner-module-%28D%29-setup-manual.pdf).
+
+### GM67/M3027 (`Device = 2`, driver `gm67`)
+
+The GM67/M3027 starts in USB keyboard mode, which won't work with VPX. Scan the
+**USB COM** setup code once (section 3.3 of the
+[manual](manual/GM67_Barcode.pdf)) to switch it to a virtual serial port. It
+keeps the setting. It then appears as a COM port on Windows, as
+`/dev/ttyACM0` (or under `/dev/serial/by-id/`) on Linux, and as
+`/dev/cu.usbmodem...` on macOS. Wired to its TTL serial pins, it works as is.
+
+Factory settings work: 9600 8N1, and it reads a code as soon as it's held in
+front of it, no button needed. Our unit sends a CR after each scan, although
+the manual lists no terminator as the default; `Terminator` = Auto handles
+both (CR, LF or a short pause). When the port
+opens, the plugin sends the module's read-only "request revision" command to
+check it's really there, and logs a warning if it doesn't answer. It never
+changes the module's settings.
+
+While a code is in view, the GM67/M3027 reads it again about every half second,
+beeping each time. The plugin's duplicate window turns that into one scan. To
+stop the repeated beeps too, scan the module's **Delay 3s** setup code under
+"Same Code Quickly Set Up" (section 4.6.1 of the
+[manual](manual/GM67_Barcode.pdf)).
 
 ### Generic serial scanner (`Device = 1`, driver `serial-line`)
 
@@ -199,7 +222,7 @@ and connection change. Details also go to VPX's log.
 |---------|--------------------------------------------|-------|
 | Windows | `COM3`                                     | See Device Manager → Ports (COM & LPT). |
 | Linux   | `/dev/serial/by-id/usb-Silicon_Labs_...`   | Stays the same across reboots and replugging; `/dev/ttyUSB0` may change. Your user must be in the `dialout` group. |
-| macOS   | `/dev/cu.usbserial-...` / `/dev/cu.SLAB_USBtoUART` | Use the `cu.*` name, not `tty.*`. |
+| macOS   | `/dev/cu.usbserial-...` / `/dev/cu.SLAB_USBtoUART` / `/dev/cu.usbmodem...` | Use the `cu.*` name, not `tty.*`. |
 
 `qrprobe --list` prints the ports it finds (see [Tools](#tools)).
 
@@ -210,7 +233,7 @@ terminator take effect when the next table starts.
 
 | Setting             | Default        | Description |
 |---------------------|----------------|-------------|
-| `Device`            | Waveshare (D)  | Scanner model (driver). Saved as a number: 0 = Waveshare Barcode Scanner (D), 1 = Generic serial scanner. |
+| `Device`            | Waveshare (D)  | Scanner model (driver). Saved as a number: 0 = Waveshare Barcode Scanner (D), 1 = Generic serial scanner, 2 = GM67/M3027. |
 | `Port`              | (empty)        | Serial port, see above. Empty = plugin does nothing. |
 | `BaudRate`          | Device default | Serial speed. Saved as a number: 0 = device default, 1 = 1200, 2 = 2400, 3 = 4800, 4 = 9600, 5 = 14400, 6 = 19200, 7 = 38400, 8 = 57600, 9 = 115200. 14400 isn't available on Linux. |
 | `Terminator`        | Auto           | How a scan ends: 0 = Auto (CR, LF or a 50 ms pause), 1 = CR, 2 = LF, 3 = CRLF, 4 = pause only. Use CR/LF/CRLF if codes contain line breaks. |
@@ -375,10 +398,12 @@ qrprobe COM3 --device serial-line --baud 115200 --terminator crlf
 
 **qr_fake_host** loads the built plugin into a minimal fake VPX host. Without
 a port it's an automated test (part of `ctest`). With a port it shows exactly
-what consuming plugins receive:
+what consuming plugins receive. The optional last argument is the `Device`
+number (default 0):
 
 ```bash
-build/qr_fake_host build/plugin-qr.so /dev/ttyUSB0 60
+build/qr_fake_host build/plugin-qr.so /dev/ttyUSB0 60        # Waveshare (D)
+build/qr_fake_host build/plugin-qr.so /dev/ttyACM0 60 2      # GM67/M3027
 ```
 
 ## Adding a scanner
@@ -407,7 +432,7 @@ src/QRPlugin.cpp          VPX glue: settings, events, main-thread hand-off
 src/core/                 ScannerWorker (thread, reconnect), ScanFilter (duplicates/cooldown),
                           ScanFormat (adds the ROM name, builds the table script call)
 third_party/nlohmann/     nlohmann/json (MIT), for JSON codes
-src/devices/              drivers, registry, LineFramer, Waveshare protocol
+src/devices/              drivers, registry, LineFramer, Waveshare and GM67/M3027 protocols
 src/transport/            SerialPort: POSIX (Linux/macOS) and Win32
 tools/qrprobe.cpp         scanner test CLI
 tests/                    unit tests, fake VPX host

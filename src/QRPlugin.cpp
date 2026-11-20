@@ -66,7 +66,7 @@ const char* baudValues[] = { "Device default", "1200", "2400", "4800", "9600", "
 constexpr int baudRates[] = { 0, 1200, 2400, 4800, 9600, 14400, 19200, 38400, 57600, 115200 };
 constexpr int baudCount = static_cast<int>(sizeof(baudRates) / sizeof(baudRates[0]));
 MSGPI_ENUM_VAL_SETTING(baudProp, "BaudRate", "Baud rate",
-   "Serial speed. 'Device default' uses the selected device's factory setting (9600 for the Waveshare D).",
+   "Serial speed. 'Device default' uses the selected device's factory setting (9600 for the Waveshare D and GM67/M3027).",
    true, 0, baudCount, baudValues, 0);
 
 const char* terminatorValues[] = { "Auto (CR, LF or pause)", "CR", "LF", "CRLF", "Pause only" };

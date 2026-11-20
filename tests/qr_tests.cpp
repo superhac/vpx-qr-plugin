@@ -5,6 +5,7 @@
 #include "core/ScanFilter.h"
 #include "core/ScanFormat.h"
 #include "devices/DeviceRegistry.h"
+#include "devices/Gm67Protocol.h"
 #include "devices/LineFramer.h"
 #include "devices/WaveshareProtocol.h"
 #include "transport/Transport.h"
@@ -88,6 +89,58 @@ static void TestWaveshareProtocol()
    {
       const auto rx = Bytes("hello");
       CHECK(Waveshare::ParseResponse(rx.data(), rx.size()).status == Waveshare::Response::Status::NotResponse);
+   }
+}
+
+// ---------------------------------------------------------------------------
+// GM67/M3027 protocol (vectors from Appendix 6 of the manual)
+// ---------------------------------------------------------------------------
+static void TestGm67Protocol()
+{
+   std::printf("GM67/M3027 protocol\n");
+   CHECK(Gm67::RequestRevisionCommand() == Hex("04 A3 04 00 FF 55"));
+   CHECK(Gm67::BuildCommand(0xE4) == Hex("04 E4 04 00 FF 14"));             // START_DECODE
+   CHECK(Gm67::BuildCommand(0xE8, { 0x01 }) == Hex("05 E8 04 00 01 FF 0E")); // LED_OFF
+   {
+      const auto param = Hex("08 C6 04 08 00 F2 05 02"); // PARAM_SEND "terminator CR"
+      CHECK(Gm67::Checksum(param.data(), param.size()) == 0xFE2D);
+   }
+   {
+      // A reply from the scanner, with scan text before and after it.
+      std::vector<uint8_t> rx = Bytes("AB");
+      const auto reply = Hex("07 A4 00 00 31 2E 30");
+      rx.insert(rx.end(), reply.begin(), reply.end());
+      const uint16_t chk = Gm67::Checksum(reply.data(), reply.size());
+      rx.push_back(static_cast<uint8_t>(chk >> 8));
+      rx.push_back(static_cast<uint8_t>(chk & 0xFF));
+      rx.push_back('C');
+      Gm67::Packet p;
+      CHECK(Gm67::FindScannerPacket(rx.data(), rx.size(), p));
+      CHECK(p.offset == 2 && p.size == 9 && p.opcode == Gm67::kOpReplyRevision);
+      CHECK(p.data == Bytes("1.0"));
+   }
+   {
+      // The real revision reply captured from a GM67/M3027 on 2026-11-20 (its text contains CR LF).
+      const auto rx = Hex("5E A4 00 00 4D 6F 64 65 6C 3A 4D 33 30 32 37 0D 0A 53 2F 4E 3A 32 30 32 36 30 39 30 38 30 32 32 32 0D 0A 44 61 74 65 3A 32 30 32 36 30 39 30 38 0D 0A 48 61 72 64 77 61 72 65 20 76 65 72 73 69 6F 6E 3A 0D 0A 53 6F 66 74 77 61 72 65 20 76 65 72 73 69 6F 6E 3A 31 2E 39 2E 33 30 0D 0A E6 27");
+      Gm67::Packet p;
+      CHECK(Gm67::FindScannerPacket(rx.data(), rx.size(), p));
+      CHECK(p.offset == 0 && p.size == 96 && p.opcode == Gm67::kOpReplyRevision);
+   }
+   {
+      const auto ack = Hex("04 D0 00 00 FF 2C");
+      Gm67::Packet p;
+      CHECK(Gm67::FindScannerPacket(ack.data(), ack.size(), p) && p.opcode == Gm67::kOpAck);
+   }
+   {
+      Gm67::Packet p;
+      const auto host = Hex("04 A3 04 00 FF 55"); // our own command echoed: not from the scanner
+      CHECK(!Gm67::FindScannerPacket(host.data(), host.size(), p));
+      const auto bad = Hex("04 D0 00 00 FF 2D"); // wrong checksum
+      CHECK(!Gm67::FindScannerPacket(bad.data(), bad.size(), p));
+      const auto partial = Hex("04 D0 00 00 FF");
+      CHECK(!Gm67::FindScannerPacket(partial.data(), partial.size(), p));
+      const auto text = Bytes("{\"v\":1,\"player\":{\"name\":\"Jane Smith\",\"initials\":\"JNS\"}}");
+      CHECK(!Gm67::FindScannerPacket(text.data(), text.size(), p));
    }
 }
 
@@ -265,9 +318,10 @@ public:
 static void TestDrivers()
 {
    std::printf("Drivers\n");
-   CHECK(Devices().size() >= 2);
+   CHECK(Devices().size() >= 3);
    CHECK(FindDevice("waveshare-d") == &Devices()[0]); // position 0 is saved in users' settings: never move it
    CHECK(FindDevice("serial-line") == &Devices()[1]);
+   CHECK(FindDevice("gm67") == &Devices()[2]);
    CHECK(std::strcmp(DeviceNames()[0], Devices()[0].name) == 0);
    CHECK(FindDevice("nope") == nullptr);
 
@@ -304,7 +358,55 @@ static void TestDrivers()
       CHECK(scans.size() == 1 && scans[0] == "ABC");
    }
    {
+      auto dev = FindDevice("gm67")->create(defaults);
+      // Real GM67/M3027 capture from 2026-11-20: revision reply, then a player code ending in CR.
+      std::vector<std::string> scans;
+      dev->SetScanHandler([&](std::string_view s) { scans.emplace_back(s); });
+      FakeTransport t;
+      t.incoming.push_back(Hex("5E A4 00 00 4D 6F 64 65 6C 3A 4D 33 30 32 37 0D 0A 53 2F 4E 3A 32 30 32 36 30 39 30 38 30 32 32 32 0D 0A 44 61 74 65 3A 32 30 32 36 30 39 30 38 0D 0A 48 61 72 64 77 61 72 65 20 76 65 72 73 69 6F 6E 3A 0D 0A 53 6F 66 74 77 61 72 65 20 76 65 72 73 69 6F 6E 3A 31 2E 39 2E 33 30 0D 0A E6 27"));
+      CHECK(dev->Identify(t) == IdentifyResult::Confirmed);
+      CHECK(scans.empty()); // the reply's text must not leak out as scans
+      const auto wire = Bytes("{\"v\":1,\"player\":{\"name\":\"Superhac\",\"initials\":\"SUP\",\"passcode\":\"secret\"}}\r");
+      dev->OnBytes(wire.data(), wire.size(), Clock::now());
+      CHECK(scans.size() == 1 && scans[0] == "{\"v\":1,\"player\":{\"name\":\"Superhac\",\"initials\":\"SUP\",\"passcode\":\"secret\"}}");
+   }
+   {
       auto dev = FindDevice("waveshare-d")->create(defaults);
+      FakeTransport t; // silent device
+      CHECK(dev->Identify(t) == IdentifyResult::NoAnswer);
+   }
+   {
+      // GM67/M3027 factory output: data with no terminator, ended by silence.
+      auto dev = FindDevice("gm67")->create(defaults);
+      CHECK(dev->PortConfig().baud == 9600);
+      std::vector<std::string> scans;
+      dev->SetScanHandler([&](std::string_view s) { scans.emplace_back(s); });
+      const auto t0 = Clock::now();
+      const auto wire = Bytes("{\"v\":1,\"player\":{\"name\":\"Jane Smith\",\"initials\":\"JNS\"}}");
+      dev->OnBytes(wire.data(), wire.size(), t0);
+      dev->OnIdle(t0 + 20ms);
+      CHECK(scans.empty());
+      dev->OnIdle(t0 + 100ms);
+      CHECK(scans.size() == 1 && scans[0] == std::string(wire.begin(), wire.end()));
+   }
+   {
+      // GM67/M3027 identify: the revision reply is recognised, scan text around it passes through.
+      auto dev = FindDevice("gm67")->create(defaults);
+      std::vector<std::string> scans;
+      dev->SetScanHandler([&](std::string_view s) { scans.emplace_back(s); });
+      FakeTransport t;
+      t.incoming.push_back(Bytes("AB"));
+      auto reply = Hex("07 A4 00 00 31 2E 30");
+      const uint16_t chk = Gm67::Checksum(reply.data(), reply.size());
+      reply.push_back(static_cast<uint8_t>(chk >> 8));
+      t.incoming.push_back(reply);
+      t.incoming.push_back({ static_cast<uint8_t>(chk & 0xFF), 'C', '\r' });
+      CHECK(dev->Identify(t) == IdentifyResult::Confirmed);
+      CHECK(t.written == Gm67::RequestRevisionCommand());
+      CHECK(scans.size() == 1 && scans[0] == "ABC");
+   }
+   {
+      auto dev = FindDevice("gm67")->create(defaults);
       FakeTransport t; // silent device
       CHECK(dev->Identify(t) == IdentifyResult::NoAnswer);
    }
@@ -399,6 +501,7 @@ static void TestTableScript()
 int main()
 {
    TestWaveshareProtocol();
+   TestGm67Protocol();
    TestLineFramer();
    TestScanFilter();
    TestScanFormat();

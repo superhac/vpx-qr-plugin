@@ -10,6 +10,7 @@
 #include "core/ScanFilter.h"
 #include "core/ScannerWorker.h"
 #include "devices/DeviceRegistry.h"
+#include "devices/Gm67Protocol.h"
 #include "devices/WaveshareProtocol.h"
 #include "transport/SerialPort.h"
 
@@ -105,6 +106,12 @@ int RunRaw(const std::string& port, const DeviceEntry& device, const DeviceOptio
    {
       const auto query = Waveshare::QueryBaudCommand();
       std::printf("TX: %s (query baud rate)\n", HexDump(query.data(), query.size()).c_str());
+      sp.Write(query.data(), query.size());
+   }
+   else if (std::strcmp(device.id, "gm67") == 0)
+   {
+      const auto query = Gm67::RequestRevisionCommand();
+      std::printf("TX: %s (request revision)\n", HexDump(query.data(), query.size()).c_str());
       sp.Write(query.data(), query.size());
    }
 

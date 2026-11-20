@@ -6,6 +6,7 @@ namespace QR {
 // Each driver's factory, defined in its own .cpp.
 std::unique_ptr<ScannerDevice> CreateWaveshareD(const DeviceOptions& options);
 std::unique_ptr<ScannerDevice> CreateSerialLine(const DeviceOptions& options);
+std::unique_ptr<ScannerDevice> CreateGm67(const DeviceOptions& options);
 
 const std::vector<DeviceEntry>& Devices()
 {
@@ -15,6 +16,7 @@ const std::vector<DeviceEntry>& Devices()
    static const std::vector<DeviceEntry> devices {
       { "waveshare-d", "Waveshare Barcode Scanner (D)", &CreateWaveshareD },
       { "serial-line", "Generic serial scanner (text lines)", &CreateSerialLine },
+      { "gm67", "GM67/M3027 (USB COM or serial mode)", &CreateGm67 },
    };
    return devices;
 }

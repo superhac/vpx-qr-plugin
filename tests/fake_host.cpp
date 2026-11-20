@@ -5,7 +5,8 @@
 //
 //   qr_fake_host <plugin library>                      lifecycle test (no device), used by ctest
 //   qr_fake_host <plugin library> --pty                scan test through a pseudo-terminal (Linux/macOS), used by ctest
-//   qr_fake_host <plugin library> <port> [seconds]     real scanner: prints scans as a consumer would see them
+//   qr_fake_host <plugin library> <port> [seconds] [device]  real scanner: prints scans as a consumer would see them
+//                                                      (device = position in the driver list, default 0)
 //
 // The host also plays the PinMAME controller ("pinmame::<rom>" in the
 // controller list), so the ROM name field can be checked.
@@ -311,6 +312,8 @@ int main(int argc, char** argv)
    if (port)
    {
       g_settingValues["Port"] = port;
+      if (argc > 4)
+         g_settingValues["Device"] = argv[4]; // position in the driver list, e.g. 2 = GM67/M3027
       g_settingValues["ShowNotification"] = "1";
       g_controllerGameIds = { "pinmame::afm_113b" }; // pretend Attack from Mars is running
    }
